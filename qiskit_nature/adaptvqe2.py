@@ -26,7 +26,7 @@ from qiskit.circuit import QuantumCircuit
 from qiskit.opflow import OperatorBase, PauliSumOp, ExpectationBase
 from qiskit.opflow.gradients import GradientBase, Gradient
 from qiskit.algorithms.minimum_eigen_solvers import MinimumEigensolver
-from qiskit.circuit.library import EvolvedOperatorAnsatz, RealAmplitudes
+from qiskit.circuit.library import EvolvedOperatorAnsatz, RealAmplitudes,PauliEvolutionGate
 from qiskit.circuit.library import NLocal
 from qiskit.utils.validation import validate_min
 from qiskit_nature import ListOrDictType
@@ -167,7 +167,8 @@ class AdaptVQE2(VQE):
             # add next excitation to ansatz
             print(exc)
             print(len(self._excitation_list))
-            self._ansatz.operators = self._excitation_list + [exc]
+            evo = PauliEvolutionGate(exc, time=0.2)
+            self._ansatz.operators = self._excitation_list + [evo]
             # the ansatz needs to be decomposed for the gradient to work
             self.ansatz = self._ansatz.decompose()
             param_sets = list(self.ansatz.parameters)

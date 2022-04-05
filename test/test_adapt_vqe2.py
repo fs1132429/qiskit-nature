@@ -7,7 +7,7 @@ import unittest
 
 from typing import cast
 
-from test import QiskitNatureTestCase, requires_extra_library
+from test import QiskitNatureTestCase
 
 import numpy as np
 
@@ -23,7 +23,7 @@ from qiskit.quantum_info import SparsePauliOp
 
 
 from qiskit_nature import QiskitNatureError
-from qiskit_nature.algorithms import AdaptVQE, VQEUCCFactory
+#from qiskit_nature.algorithms import AdaptVQE, VQEUCCFactory
 from qiskit_nature.adaptvqe2 import AdaptVQE2
 from qiskit_nature.circuit.library import HartreeFock, UCC
 from qiskit_nature.drivers import UnitsType
@@ -134,3 +134,6 @@ class TestAdaptVQE2(QiskitNatureTestCase):
         res= calc.solve()
         self.assertAlmostEqual(res.electronic_energies[0], self.expected, places=6)
 
+
+if __name__ == "__main__":
+    unittest.main()
