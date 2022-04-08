@@ -23,7 +23,7 @@ from qiskit import QiskitError
 
 from qiskit.algorithms import VQE
 from qiskit.circuit import QuantumCircuit
-from qiskit.opflow import OperatorBase, PauliSumOp, ExpectationBase
+from qiskit.opflow import OperatorBase, PauliSumOp, ExpectationBase, CircuitSampler
 from qiskit.opflow.gradients import GradientBase, Gradient
 from qiskit.algorithms.minimum_eigen_solvers import MinimumEigensolver
 from qiskit.circuit.library import EvolvedOperatorAnsatz, RealAmplitudes,PauliEvolutionGate
@@ -73,6 +73,7 @@ class AdaptVQE2(VQE):
     # pylint: disable=unused-argument
     def __init__(
         self,
+        ansatz: Optional[QuantumCircuit] = None,
         threshold: float = 1e-5,
         delta: float = 1.0,  # delta is copied into gradient by the deprecate_arguments wrapper
         max_iterations: Optional[int] = None,
@@ -123,15 +124,12 @@ class AdaptVQE2(VQE):
         self._gradient = gradient
         self._excitation_pool = excitation_pool
         #self._operator= operator
-        self._operator=operator
-        ansatz = RealAmplitudes(4)
-        #self._ansatz = self.ansatz
-        self._ansatz = ansatz
+        self._operator = operator
+        self._tmp_ansatz = ansatz
 
+        self._excitation_pool: List[OperatorBase] = []
         self._excitation_list: List[OperatorBase] = []
         #self._main_operator: OperatorBase = None
-       
-        #self._ansatz: QuantumCircuit = None
 
     @property
     def gradient(self) -> Optional[GradientBase]:
@@ -163,32 +161,30 @@ class AdaptVQE2(VQE):
         """
         res = []
         # compute gradients for all excitation in operator pool
+        sampler = CircuitSampler(self.quantum_instance)
         for exc in self._excitation_pool:
             # add next excitation to ansatz
             print(exc)
             print(len(self._excitation_list))
-            evo = PauliEvolutionGate(exc, time=0.2)
-            self._ansatz.operators = self._excitation_list + [evo]
+            self._tmp_ansatz.operators = self._excitation_list + [exc]
             # the ansatz needs to be decomposed for the gradient to work
-            self.ansatz = self._ansatz.decompose()
+            self.ansatz = self._tmp_ansatz.decompose()
+            print(self.ansatz)
             param_sets = list(self.ansatz.parameters)
             print(param_sets)
             # zip will only iterate the length of the shorter list
             theta1 = dict(zip(self.ansatz.parameters, theta))
-            op,expectation = self.construct_expectation(theta1, self._operator,return_expectation=True)
-            #print("main Operator",self._operator)
-            #print("ansatz", self.ansatz)
+            op, expectation = self.construct_expectation(theta1, self._operator, return_expectation=True)
             # compute gradient
             state_grad = self.gradient.convert(operator=op, params=param_sets)
             # Assign the parameters and evaluate the gradient
             value_dict = {param_sets[-1]: 0.0}
             print(value_dict)
-            state_grad_result = state_grad.assign_parameters(value_dict)
-            #print(state_grad_result)
-            state_grad_result1=state_grad_result.eval()
-            logger.info("Gradient computed : %s", str(state_grad_result1))
-            res.append((np.abs(state_grad_result1[-1]), exc))
-        return res,expectation
+            state_grad_result = sampler.convert(state_grad, params=value_dict).eval()
+            print(state_grad_result)
+            logger.info("Gradient computed : %s", str(state_grad_result))
+            res.append((np.abs(state_grad_result[-1]), exc))
+        return res, expectation
 
     @staticmethod
     def _check_cyclicity(indices: List[int]) -> bool:
@@ -243,14 +239,13 @@ class AdaptVQE2(VQE):
             information about the AdaptVQE algorithm like the number of iterations, finishing
             criterion, and the final maximum gradient.
         """
-        #if not isinstance(self.ansatz, EvolvedOperatorAnsatz):
-            #raise QiskitNatureError("The AdaptVQE algorithm requires the use of the evolved operator ansatz")
+        # if not isinstance(self.ansatz, EvolvedOperatorAnsatz):
+        #     raise QiskitNatureError("The AdaptVQE algorithm requires the use of the evolved operator ansatz")
+
         # We construct the ansatz once to be able to extract the full set of excitation operators.
-        #print(self._main_operator.num_qubits)
-        #self._ansatz = copy.deepcopy(self.ansatz)
-        #self._ansatz._build()
-        #self._excitation_pool = copy.deepcopy(self._ansatz.operators)
-       
+        self._tmp_ansatz._build()
+        self._excitation_pool = copy.deepcopy(self._tmp_ansatz.operators)
+
         threshold_satisfied = False
         alternating_sequence = False
         max_iterations_exceeded = False
@@ -301,8 +296,8 @@ class AdaptVQE2(VQE):
             self._excitation_list.append(max_grad[1])
             theta.append(0.0)
             # run VQE on current Ansatz
-            self._ansatz.operators = self._excitation_list
-            self.ansatz = self._ansatz
+            self._tmp_ansatz.operators = self._excitation_list
+            self.ansatz = self._tmp_ansatz
             self.initial_point = theta
             raw_vqe_result = self.compute_minimum_eigenvalue(self._operator)
             theta = raw_vqe_result.optimal_point.tolist()
@@ -318,7 +313,7 @@ class AdaptVQE2(VQE):
         else:
             aux_values = None
         raw_vqe_result.aux_operator_eigenvalues = aux_values
-        
+
         if threshold_satisfied:
             finishing_criterion = "Threshold converged"
         elif alternating_sequence:
